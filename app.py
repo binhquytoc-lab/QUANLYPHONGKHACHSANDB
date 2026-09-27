@@ -355,7 +355,7 @@ def get_bookings_df(active_only=False):
 # ==============================================================================
 
 def main():
-    st.title("🏨 Hệ thống Quản lý Phòng Khách sạn")
+    st.title("🏨 Hệ thống Quản lý Phòng Khách sạn_DR BÌNH")
     st.caption(
         f"✅ Dữ liệu được lưu trực tiếp vào MySQL (Aiven). "
         f"Mặc định **{DEFAULT_ROOMS} phòng**, quản lý tối đa **{MAX_ROOMS} phòng**."

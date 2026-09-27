@@ -110,10 +110,17 @@ def init_db():
                 check_out DATE NOT NULL,
                 status VARCHAR(30) NOT NULL DEFAULT 'Đang ở',
                 created_at DATETIME NOT NULL,
+                total_amount DECIMAL(14, 2) NULL,
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+
+        # Nếu bảng bookings được tạo từ phiên bản cũ (chưa có cột total_amount) thì bổ sung
+        try:
+            conn.exec_driver_sql("ALTER TABLE bookings ADD COLUMN total_amount DECIMAL(14, 2) NULL")
+        except Exception:
+            pass  # Cột đã tồn tại
 
         # Nếu bảng rooms đang trống, tạo sẵn DEFAULT_ROOMS phòng mặc định
         count = conn.execute(text("SELECT COUNT(*) FROM rooms")).scalar()
@@ -293,18 +300,32 @@ def add_booking(room_id, guest_name, phone, check_in, check_out):
         conn.execute(text("UPDATE rooms SET status='Đang sử dụng' WHERE id=:id"), {"id": room_id})
 
 
-def checkout_booking(booking_id, room_id):
+def calc_nights(check_in, check_out):
+    """Tính số đêm ở, tối thiểu 1 đêm."""
+    if isinstance(check_in, str):
+        check_in = datetime.strptime(check_in, "%Y-%m-%d").date()
+    if isinstance(check_out, str):
+        check_out = datetime.strptime(check_out, "%Y-%m-%d").date()
+    nights = (check_out - check_in).days
+    return max(nights, 1)
+
+
+def checkout_booking(booking_id, room_id, total_amount):
+    """Trả phòng và lưu lại số tiền cần thanh toán vào lịch sử đặt phòng."""
     engine = get_db_engine()
     with engine.begin() as conn:
-        conn.execute(text("UPDATE bookings SET status='Đã trả phòng' WHERE id=:id"), {"id": booking_id})
+        conn.execute(
+            text("UPDATE bookings SET status='Đã trả phòng', total_amount=:amount WHERE id=:id"),
+            {"amount": total_amount, "id": booking_id},
+        )
         conn.execute(text("UPDATE rooms SET status='Đang dọn dẹp' WHERE id=:id"), {"id": room_id})
 
 
 def get_bookings_df(active_only=False):
     engine = get_db_engine()
     query = """
-        SELECT b.id, r.room_number, b.guest_name, b.phone, b.check_in, b.check_out,
-               b.status, b.room_id
+        SELECT b.id, r.room_number, r.price, b.guest_name, b.phone, b.check_in, b.check_out,
+               b.status, b.room_id, b.total_amount
         FROM bookings b
         JOIN rooms r ON b.room_id = r.id
     """
@@ -501,6 +522,25 @@ def main():
 
     # ---------------- TAB: ĐẶT PHÒNG / TRẢ PHÒNG ----------------
     with tab_booking:
+        # Nếu vừa trả phòng ở lượt chạy trước, hiển thị hóa đơn thanh toán tại đây
+        if "last_receipt" in st.session_state:
+            receipt = st.session_state["last_receipt"]
+            with st.container(border=True):
+                st.subheader("🧾 Hóa đơn thanh toán")
+                st.markdown(
+                    f"- **Phòng:** {receipt['room_number']}\n"
+                    f"- **Khách hàng:** {receipt['guest_name']}\n"
+                    f"- **Nhận phòng:** {receipt['check_in']}\n"
+                    f"- **Trả phòng:** {receipt['check_out']}\n"
+                    f"- **Số đêm:** {receipt['nights']} đêm\n"
+                    f"- **Giá phòng:** {receipt['price']:,.0f}đ/đêm\n"
+                )
+                st.success(f"💰 **TỔNG TIỀN CẦN THANH TOÁN: {receipt['total']:,.0f} VNĐ**")
+                if st.button("Đóng hóa đơn"):
+                    del st.session_state["last_receipt"]
+                    st.rerun()
+            st.divider()
+
         st.subheader("Đặt phòng mới")
         rooms_df = get_rooms_df()
         available_rooms = rooms_df[rooms_df["status"] == "Trống"] if not rooms_df.empty else rooms_df
@@ -538,13 +578,26 @@ def main():
             st.info("Không có phòng nào đang được sử dụng.")
         else:
             for _, b in active_df.iterrows():
+                nights = calc_nights(b["check_in"], b["check_out"])
+                estimated_total = nights * float(b["price"])
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([3, 2, 1])
                     c1.markdown(f"**Phòng {b['room_number']}** — {b['guest_name']} ({b['phone']})")
-                    c2.markdown(f"Nhận: {b['check_in']} → Trả: {b['check_out']}")
+                    c2.markdown(
+                        f"Nhận: {b['check_in']} → Trả: {b['check_out']} "
+                        f"({nights} đêm · {estimated_total:,.0f}đ)"
+                    )
                     if c3.button("✅ Trả phòng", key=f"checkout_{b['id']}"):
-                        checkout_booking(int(b["id"]), int(b["room_id"]))
-                        st.success(f"Đã trả phòng {b['room_number']}.")
+                        checkout_booking(int(b["id"]), int(b["room_id"]), estimated_total)
+                        st.session_state["last_receipt"] = {
+                            "room_number": b["room_number"],
+                            "guest_name": b["guest_name"],
+                            "check_in": b["check_in"],
+                            "check_out": b["check_out"],
+                            "nights": nights,
+                            "price": float(b["price"]),
+                            "total": estimated_total,
+                        }
                         st.rerun()
 
     # ---------------- TAB: LỊCH SỬ ----------------
@@ -554,8 +607,12 @@ def main():
         if history_df.empty:
             st.info("Chưa có lịch sử đặt phòng.")
         else:
+            display_history = history_df.copy()
+            display_history["total_amount"] = display_history["total_amount"].fillna(0)
             st.dataframe(
-                history_df[["room_number", "guest_name", "phone", "check_in", "check_out", "status"]].rename(
+                display_history[
+                    ["room_number", "guest_name", "phone", "check_in", "check_out", "status", "total_amount"]
+                ].rename(
                     columns={
                         "room_number": "Số phòng",
                         "guest_name": "Khách hàng",
@@ -563,11 +620,15 @@ def main():
                         "check_in": "Nhận phòng",
                         "check_out": "Trả phòng",
                         "status": "Trạng thái",
+                        "total_amount": "Số tiền đã thanh toán (VNĐ)",
                     }
                 ),
                 use_container_width=True,
                 hide_index=True,
             )
+
+            total_revenue = display_history["total_amount"].sum()
+            st.metric("💰 Tổng doanh thu đã thu (các lượt đã trả phòng)", f"{total_revenue:,.0f} VNĐ")
 
 
 if __name__ == "__main__":

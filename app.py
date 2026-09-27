@@ -33,10 +33,10 @@ if os.path.exists("VT.jpg"):
 # ==============================================================================
 # Thay các giá trị bên dưới bằng thông tin database Aiven của bạn.
 
-DB_USER = "avnadmin"
-DB_PASSWORD = "AVNS_TX2oBXmTGGjXba6p7j1"
-DB_HOST = "mysql-3a5ef2bc-binhquytoc.a.aivencloud.com"
-DB_PORT = 14483
+DB_USER = "avnadmin" # SỬA LẠI USER
+DB_PASSWORD = "AVNS_TX2oBXmTGGjXba6p7j1" # SỬA LẠI PASSWORD
+DB_HOST = "mysql-3a5ef2bc-binhquytoc.a.aivencloud.com" # SỬA LẠI HOST
+DB_PORT = 14483 # SỬA LẠI PORT
 DB_NAME = "hotel_management"
 
 # Làm sạch dữ liệu kết nối

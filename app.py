@@ -37,7 +37,7 @@ DB_USER = "avnadmin"
 DB_PASSWORD = "AVNS_TX2oBXmTGGjXba6p7j1"
 DB_HOST = "mysql-3a5ef2bc-binhquytoc.a.aivencloud.com"
 DB_PORT = 14483
-DB_NAME = "defaultdb"
+DB_NAME = "hotel_management"
 
 # Làm sạch dữ liệu kết nối
 DB_USER = str(DB_USER).strip()

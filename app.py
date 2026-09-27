@@ -31,12 +31,11 @@ if os.path.exists("VT.jpg"):
 # ==============================================================================
 # KẾT NỐI AIVEN MYSQL (cấu hình trực tiếp)
 # ==============================================================================
-# Thay các giá trị bên dưới bằng thông tin database Aiven của bạn.
 
-DB_USER = "avnadmin" # SỬA LẠI USER
-DB_PASSWORD = "AVNS_TX2oBXmTGGjXba6p7j1" # SỬA LẠI PASSWORD
-DB_HOST = "mysql-3a5ef2bc-binhquytoc.a.aivencloud.com" # SỬA LẠI HOST
-DB_PORT = 14483 # SỬA LẠI PORT
+DB_USER = "avnadmin"
+DB_PASSWORD = "AVNS_TX2oBXmTGGjXba6p7j1"
+DB_HOST = "mysql-3a5ef2bc-binhquytoc.a.aivencloud.com"
+DB_PORT = 14483
 DB_NAME = "hotel_management"
 
 # Làm sạch dữ liệu kết nối
@@ -85,6 +84,22 @@ def get_db_engine():
 # ==============================================================================
 
 def init_db():
+    # 1. Kết nối không chỉ định DB để đảm bảo DB hotel_management đã tồn tại
+    root_url = URL.create(
+        drivername="mysql+pymysql",
+        username=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT,
+    )
+    temp_engine = create_engine(root_url, connect_args={"connect_timeout": 15})
+    with temp_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        )
+    temp_engine.dispose()
+
+    # 2. Khởi tạo cấu trúc các bảng trong DB hotel_management
     engine = get_db_engine()
     with engine.begin() as conn:
         conn.exec_driver_sql(
@@ -116,13 +131,13 @@ def init_db():
             """
         )
 
-        # Nếu bảng bookings được tạo từ phiên bản cũ (chưa có cột total_amount) thì bổ sung
+        # Bổ sung cột total_amount nếu bảng cũ chưa có
         try:
             conn.exec_driver_sql("ALTER TABLE bookings ADD COLUMN total_amount DECIMAL(14, 2) NULL")
         except Exception:
-            pass  # Cột đã tồn tại
+            pass
 
-        # Nếu bảng rooms đang trống, tạo sẵn DEFAULT_ROOMS phòng mặc định
+        # Nếu bảng rooms trống, tạo sẵn DEFAULT_ROOMS phòng mặc định
         count = conn.execute(text("SELECT COUNT(*) FROM rooms")).scalar()
         if count == 0:
             rows = [
@@ -522,7 +537,6 @@ def main():
 
     # ---------------- TAB: ĐẶT PHÒNG / TRẢ PHÒNG ----------------
     with tab_booking:
-        # Nếu vừa trả phòng ở lượt chạy trước, hiển thị hóa đơn thanh toán tại đây
         if "last_receipt" in st.session_state:
             receipt = st.session_state["last_receipt"]
             with st.container(border=True):
